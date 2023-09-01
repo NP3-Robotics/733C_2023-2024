@@ -34,7 +34,11 @@ std::shared_ptr<okapi::ChassisController> drive =
 
 void on_center_button() {}
 
-void initialize() { pros::lcd::initialize(); }
+void initialize()
+{
+  pros::lcd::initialize();
+  cata.setBrakeMode(okapi::AbstractMotor::brakeMode::hold);
+}
 
 void disabled() {}
 
@@ -77,23 +81,29 @@ void opcontrol()
 
     if (controller.getDigital(okapi::ControllerDigital::A))
     {
+
       while (true)
       {
-        if (cata.getPosition() < 150)
+        if (cata.getPosition() <= 151)
           cata.moveVelocity(100);
-        if (cata.getPosition() > 150)
+        if (cata.getPosition() > 151)
         {
-          cout << "cata shot encoder value at " << cata.getPosition() << endl;
+          // cout << "cata shot encoder value at " << cata.getPosition() << endl;
           cata.moveVelocity(0);
           cata.tarePosition();
           break;
         }
       }
+
+      //  150.8 so far
+      cata.moveVelocity(25);
     }
     else
     {
       cata.moveVelocity(0);
     }
+
+    cout << cata.getPosition() << endl;
 
     turn = controller.getAnalog(okapi::ControllerAnalog::leftX) / 2;
 
