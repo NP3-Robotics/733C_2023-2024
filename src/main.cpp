@@ -25,6 +25,9 @@ MotorGroup rightMtrs({right1, right2, right3});
 
 Motor cata(7, true, okapi::AbstractMotor::gearset::red, okapi::AbstractMotor::encoderUnits::degrees);
 
+pros::ADIDigitalOut wingLeft('A', true);
+pros::ADIDigitalOut wingRight('B', true);
+
 std::shared_ptr<okapi::ChassisController> drive =
     okapi::ChassisControllerBuilder()
         .withMotors(leftMtrs, rightMtrs)
@@ -51,6 +54,9 @@ void opcontrol()
   double direction;
   double turn;
   double velocity = 1;
+
+  okapi::ControllerButton wingOn(okapi::ControllerDigital::R1);
+  okapi::ControllerButton wingOff(okapi::ControllerDigital::L1);
 
   while (true)
   {
@@ -91,6 +97,7 @@ void opcontrol()
           // cout << "cata shot encoder value at " << cata.getPosition() << endl;
           cata.moveVelocity(0);
           cata.tarePosition();
+
           break;
         }
       }
@@ -101,6 +108,18 @@ void opcontrol()
     else
     {
       cata.moveVelocity(0);
+    }
+
+    if (wingOn.isPressed())
+    {
+      wingLeft.set_value(false);
+      wingRight.set_value(false);
+    }
+
+    if (wingOff.isPressed())
+    {
+      wingLeft.set_value(true);
+      wingRight.set_value(true);
     }
 
     cout << cata.getPosition() << endl;
