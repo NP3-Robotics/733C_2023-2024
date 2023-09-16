@@ -1,133 +1,97 @@
 #include "main.h"
-#include "okapi/api.hpp"
-#include <iostream>
+#include "pros/adi.hpp"
+#include "pros/misc.h"
+#include "pros/misc.hpp"
+#include "pros/motors.hpp"
+#include "pros/optical.h"
+#include "pros/rtos.hpp"
+#include "stdio.h"
+
+/*
+#include "my_stuff/init.h"
+#include "my_stuff/auton.h"
+#include "my_stuff/op_control.h"
+*/
+
+#include "my_stuff/port_declerations.h"
+#include "my_stuff/global_var.h"
 
 using namespace std;
 
-using namespace okapi;
+pros::Vision vision(1);
 
-Motor left1(1, false, okapi::AbstractMotor::gearset::green,
-            okapi::AbstractMotor::encoderUnits::rotations);
-Motor left2(2, true, okapi::AbstractMotor::gearset::green,
-            okapi::AbstractMotor::encoderUnits::rotations);
-Motor left3(3, true, okapi::AbstractMotor::gearset::green,
-            okapi::AbstractMotor::encoderUnits::rotations);
+pros::Motor frontLeftMtr(1, pros::E_MOTOR_GEAR_GREEN, false,
+                         pros::E_MOTOR_ENCODER_DEGREES);
+pros::Motor middleLeftMtr(2, pros::E_MOTOR_GEAR_GREEN, true,
+                          pros::E_MOTOR_ENCODER_DEGREES);
+pros::Motor backLeftMtr(3, pros::E_MOTOR_GEAR_GREEN, false,
+                        pros::E_MOTOR_ENCODER_DEGREES);
+pros::Motor_Group leftMtrs({frontLeftMtr, middleLeftMtr, backLeftMtr});
 
-Motor right1(4, false, okapi::AbstractMotor::gearset::green,
-             okapi::AbstractMotor::encoderUnits::rotations);
-Motor right2(5, true, okapi::AbstractMotor::gearset::green,
-             okapi::AbstractMotor::encoderUnits::rotations);
-Motor right3(6, false, okapi::AbstractMotor::gearset::green,
-             okapi::AbstractMotor::encoderUnits::rotations);
+pros::Motor frontRightMtr(4, pros::E_MOTOR_GEAR_GREEN, true,
+                          pros::E_MOTOR_ENCODER_DEGREES);
+pros::Motor middleRightMtr(5, pros::E_MOTOR_GEAR_GREEN, false,
+                           pros::E_MOTOR_ENCODER_DEGREES);
+pros::Motor backRightMtr(6, pros::E_MOTOR_GEAR_GREEN, true,
+                         pros::E_MOTOR_ENCODER_DEGREES);
+pros::Motor_Group rightMtrs({frontRightMtr, middleRightMtr, backRightMtr});
 
-MotorGroup leftMtrs({left1, left2, left3});
-MotorGroup rightMtrs({right1, right2, right3});
+pros::Motor catapult(7, pros::E_MOTOR_GEAR_RED, true, pros::E_MOTOR_ENCODER_DEGREES);
+pros::Motor cataArm(8, pros::E_MOTOR_GEAR_GREEN, true, pros::E_MOTOR_ENCODER_DEGREES);
 
-Motor cata(7, true, okapi::AbstractMotor::gearset::red, okapi::AbstractMotor::encoderUnits::degrees);
+pros::ADIDigitalOut wingLeft('A');
+pros::ADIDigitalOut wingRight('B');
 
-pros::ADIDigitalOut wingLeft('A', true);
-pros::ADIDigitalOut wingRight('B', true);
+pros::Motor intake(9, pros::E_MOTOR_GEAR_GREEN, true, pros::E_MOTOR_ENCODER_DEGREES);
 
-std::shared_ptr<okapi::ChassisController> drive =
-    okapi::ChassisControllerBuilder()
-        .withMotors(leftMtrs, rightMtrs)
-        .withDimensions(okapi::AbstractMotor::gearset::green,
-                        {{4_in, 11.5_in}, okapi::imev5GreenTPR})
-        .build();
+bool wingState;
+bool cataArmMove;
 
-void on_center_button() {}
+void initBot()
+{
+  leftMtrs.set_brake_modes(pros::E_MOTOR_BRAKE_COAST);
+  leftMtrs.tare_position();
+  rightMtrs.set_brake_modes(pros::E_MOTOR_BRAKE_COAST);
+  rightMtrs.tare_position();
+
+  wingLeft.set_value(true);
+  wingRight.set_value(true);
+  wingState = false;
+
+  // vision.set_zero_point(pros::E_VISION_ZERO_CENTER);
+
+  catapult.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+  catapult.move_relative(135, 100);
+  cataArm.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+  cataArm.move_relative(10, 200);
+  cataArmMove = true;
+  pros::delay(500);
+}
 
 void initialize()
 {
   pros::lcd::initialize();
-  cata.setBrakeMode(okapi::AbstractMotor::brakeMode::hold);
+  initBot();
 }
 
 void disabled() {}
 
-void autonomous() {}
+// void controllerFunc(int leftY, int rightX)
+// {
+//   if (leftY != 0 && rightX == 0)
+//   {
+//     leftMtrs.move(127 * leftY);
+//     rightMtrs.move(127 * leftY);
+//   }
 
-void opcontrol()
-{
-  okapi::Controller controller;
+//   if (leftY == 0 && rightX != 0)
+//   {
+//     leftMtrs.move(127 * rightX);
+//     rightMtrs.move(127 * -rightX);
+//   }
 
-  double direction;
-  double turn;
-  double velocity = 1;
-
-  okapi::ControllerButton wingOn(okapi::ControllerDigital::R1);
-  okapi::ControllerButton wingOff(okapi::ControllerDigital::L1);
-
-  while (true)
-  {
-    direction = 0;
-    if (controller.getDigital(okapi::ControllerDigital::up))
-    {
-      if (velocity != 1)
-      {
-        velocity += 0.1;
-      }
-    }
-    if (controller.getDigital(okapi::ControllerDigital::down))
-    {
-      if (velocity != 0)
-      {
-        velocity -= 0.1;
-      }
-    }
-
-    if (controller.getDigital(okapi::ControllerDigital::R2))
-    {
-      direction = velocity;
-    }
-    if (controller.getDigital(okapi::ControllerDigital::L2))
-    {
-      direction = -velocity;
-    }
-
-    if (controller.getDigital(okapi::ControllerDigital::A))
-    {
-
-      while (true)
-      {
-        if (cata.getPosition() <= 151)
-          cata.moveVelocity(100);
-        if (cata.getPosition() > 151)
-        {
-          // cout << "cata shot encoder value at " << cata.getPosition() << endl;
-          cata.moveVelocity(0);
-          cata.tarePosition();
-
-          break;
-        }
-      }
-
-      //  150.8 so far
-      cata.moveVelocity(25);
-    }
-    else
-    {
-      cata.moveVelocity(0);
-    }
-
-    if (wingOn.isPressed())
-    {
-      wingLeft.set_value(false);
-      wingRight.set_value(false);
-    }
-
-    if (wingOff.isPressed())
-    {
-      wingLeft.set_value(true);
-      wingRight.set_value(true);
-    }
-
-    cout << cata.getPosition() << endl;
-
-    turn = controller.getAnalog(okapi::ControllerAnalog::leftX) / 2;
-
-    drive->getModel()->arcade(direction, turn);
-
-    pros::delay(10);
-  }
-}
+//   if (leftY != 0 && rightX != 0)
+//   {
+//     cout << "im here" << endl;
+//   }
+// }
