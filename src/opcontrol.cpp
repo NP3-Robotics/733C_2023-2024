@@ -8,6 +8,8 @@
 
 using namespace std;
 
+// added controller functions
+
 void controllerFunc(pros::Controller controller, double &speed, int &catapos, bool &wingState)
 {
     bool speedUp = controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_UP);
