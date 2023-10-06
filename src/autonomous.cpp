@@ -2,12 +2,12 @@
 #include <iostream>
 
 #include "my_stuff/port_declerations.h"
+// #include "my_stuff/lvgl_stuff.h"
 
 #define PI 3.141592653589793238462643383279502884L
 using namespace std;
 
-// kp e + ki integral(e) + kd de/dt
-// Added PID code
+// meant to store things which are needed in PID loop
 class PID_Holder
 {
 public:
@@ -22,22 +22,7 @@ public:
     double errorAcc = 0;
 };
 
-PID_Holder leftMtrStorage;
-PID_Holder rightMtrStorage;
-
-void setInitMtrStuff()
-{
-    leftMtrStorage.left = true;
-    leftMtrStorage.moving = false;
-
-    rightMtrStorage.left = false;
-    rightMtrStorage.moving = false;
-}
-
-double kp = 1;
-double ki = 0.5;
-double kd = 10;
-
+// gives average encoder value of a side
 double avgEncoder(std::vector<double> mtr)
 {
     std::cout << mtr[0] << " " << mtr[1] << " " << mtr[2] << endl;
@@ -47,95 +32,217 @@ double avgEncoder(std::vector<double> mtr)
     return avgMtrEncoder;
 }
 
-double calcDistanceTravelled(double encoderValue)
+// converts degree to a distance
+double convertDegToDist(double degree)
 {
     // 2 pi r
-    //  r = 2
+    // r = 2
     // single encoder value = 2 pi r deg / 360 = pi deg / 90
 
-    double distTravelled = PI * encoderValue / 90;
-
-    return distTravelled;
+    return PI * degree / 90;
 }
 
-double findPIDOutput(int desiredDistance, PID_Holder &mtrStorage)
+// 55, 0, 0 starts oscillating
+double kpM = 55;
+double kiM = 1;
+double kdM = -100;
+
+// finds the new output in the PID loop
+PID_Holder findPIDOutput(double desiredPoint, PID_Holder &input)
 {
+    PID_Holder newInput;
+
     double mtrPos;
-    if (mtrStorage.left)
+
+    // finding out which motor to check
+    if (input.left)
         mtrPos = avgEncoder(leftMtrs.get_positions());
     else
         mtrPos = avgEncoder(rightMtrs.get_positions());
 
+    // seeing if it is the start of the PID loop
+    if (!(input.moving))
+    {
+        newInput.lastInput = 0;
+        newInput.startInput = mtrPos;
+        newInput.errorAcc = 0;
+
+        newInput.moving = true;
+    }
+
+    // calcuation of error
+    double changeInEncoder = mtrPos - input.startInput;
+
+    double distTravelled = convertDegToDist(changeInEncoder);
+
+    double error = desiredPoint - distTravelled;
+
+    // i term, error accumulation
+    newInput.errorAcc = input.error + error;
+
+    // test this later, see if adding ki makes the robot wack
+    // meant to limit error accumulation
+    if (newInput.errorAcc > desiredPoint)
+        newInput.errorAcc = 0;
+
+    if (newInput.error < desiredPoint * 0.1)
+        newInput.errorAcc = 0;
+
+    // new output
+    double output = kpM * error + kiM * newInput.errorAcc + kdM * (distTravelled - input.lastInput) / 10;
+
+    // limit output within bounds of motor velocity (in our case since green 200)
+    if (output > 200)
+        output = 200;
+    if (output < -200)
+        output = -200;
+
+    // forgot what i was doing with this since im restructuring the code, meant to store new info to motor
+    input.output = output;
+    input.lastInput = distTravelled;
+
+    return newInput;
+}
+
+// work in progress do to restructuring
+void moveDist(double desiredDistance)
+{
+    PID_Holder leftMtrStorage;
+    PID_Holder rightMtrStorage;
+
+    while (true)
+    {
+        PID_Holder currentLeftMtrStorage = findPIDOutput(desiredDistance, leftMtrStorage);
+        PID_Holder currentRightMtrStorage = findPIDOutput(desiredDistance, rightMtrStorage);
+
+        if (!leftMtrStorage.moving && !rightMtrStorage.moving)
+        {
+            cout << "done moving" << endl;
+            break;
+        }
+
+        leftMtrs.move_velocity(leftMtrStorage.output);
+        rightMtrs.move_velocity(rightMtrStorage.output);
+
+        leftMtrStorage = currentLeftMtrStorage;
+        rightMtrStorage = currentRightMtrStorage;
+
+        pros::delay(10);
+    }
+}
+
+double kpT = 10;
+double kiT = 0;
+double kdT = 0;
+
+// same concept as the one above except for turning
+PID_Holder findPIDOutputTurn(double turnAmount, PID_Holder &mtrStorage)
+{
+    double newHeading = inertial.get_heading();
+
     if (!(mtrStorage.moving))
     {
-        mtrStorage.startInput = mtrPos;
+        mtrStorage.startInput = newHeading;
         mtrStorage.moving = true;
     }
 
-    double changeInEncoder = mtrPos - mtrStorage.startInput;
+    double desiredHeading = mtrStorage.startInput + turnAmount;
 
-    double distTravelled = calcDistanceTravelled(changeInEncoder);
-
-    mtrStorage.error = desiredDistance - distTravelled;
+    if (turnAmount > 0)
+        mtrStorage.error = desiredHeading - newHeading;
+    else
+        mtrStorage.error = newHeading - desiredHeading;
 
     mtrStorage.errorAcc += mtrStorage.error;
 
-    double output = kp * mtrStorage.error + ki * mtrStorage.errorAcc + kd * (distTravelled - mtrStorage.lastInput) / 100;
+    if (mtrStorage.errorAcc > desiredHeading)
+        mtrStorage.errorAcc = 0;
+
+    if (mtrStorage.error < desiredHeading * 0.1)
+        mtrStorage.errorAcc = 0;
+
+    double output = kpT * mtrStorage.error + kiT * mtrStorage.errorAcc + kdT * (newHeading - mtrStorage.lastInput) / 10;
 
     if (output > 200)
         output = 200;
     if (output < -200)
         output = -200;
 
-    return output;
+    mtrStorage.output = output;
+    mtrStorage.lastInput = newHeading;
+
+    return mtrStorage;
 }
 
-void moveDist(int desiredDistance)
+// same concept as one above except for turning
+void turnDistIntertial(double desiredRotation)
 {
+    // look at get_rotation and get_heading
+    // use set_heading and set_rotation in init
+
+    PID_Holder inertialStorage;
+
     while (true)
     {
-        leftMtrStorage.output = findPIDOutput(desiredDistance, leftMtrStorage);
-        rightMtrStorage.output = findPIDOutput(desiredDistance, rightMtrStorage);
+        PID_Holder currentInertialStorage = findPIDOutputTurn(desiredRotation, inertialStorage);
 
-        /*
-        if (abs(leftMtrStorage.error + rightMtrStorage.error) / 2 < 0.5)
+        if (!inertialStorage.moving)
         {
-
-            std::cout << "loop ended" << endl;
-            leftMtrs.move(0);
-            rightMtrs.move(0);
-
-            leftMtrStorage.output = 0;
-            rightMtrStorage.output = 0;
+            cout << "done turning" << endl;
             break;
         }
-        */
 
-        // std::cout << "loop still going" << endl;
-        std::cout << "avg error is "
-                  << abs(leftMtrStorage.error + rightMtrStorage.error) / 2 << endl;
+        leftMtrs.move_velocity(inertialStorage.output);
+        rightMtrs.move_velocity(-inertialStorage.output);
 
-        printf("Left output is %d. Right output is %d. \n", leftMtrStorage.output, rightMtrStorage.output);
+        inertialStorage = currentInertialStorage;
 
-        leftMtrs.move_velocity(leftMtrStorage.output);
-        rightMtrs.move_velocity(rightMtrStorage.output);
-        pros::delay(100);
+        pros::delay(10);
     }
-
-    leftMtrStorage.moving = false;
-    rightMtrStorage.moving = false;
 }
 
 void autonomous()
 {
-    std::cout << "in auton" << endl;
+    // makes sure everything is zeroed
     leftMtrs.tare_position();
     rightMtrs.tare_position();
 
-    // leftMtrs.move_velocity(-200);
-    // rightMtrs.move_velocity(-200);
+    // planning
 
-    moveDist(10.0);
+    /*
+    left side shoot over
+         move foward
+         turn right 90 (90 deg)
+         move backward
+         intake out
+         move forward
+         turn right 90 (90 deg)
+         move backward
+         intake a triball
+         turn left 90 (-90 deg)
+         shoot triball over the field
+         repeat
+         maybe touch the bar
+    */
+    /*
+    right side put in goal
+         move foward
+         turn left 90 (-90 deg)
+         move backward
+         intake out
+         move foward
+         turn left 90 (-90 deg)
+         move backward
+         intake a triball
+         move foward
+         turn right 90 (90 deg)
+         move backward
+         intake out
+         repeat
+         maybe touch the bar
+    */
 
-    pros::delay(1000);
+    moveDist(48.0);
+    moveDist(-48.0);
+    turnDistIntertial(90.0);
 }
