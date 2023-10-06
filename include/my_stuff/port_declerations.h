@@ -22,3 +22,5 @@ extern pros::ADIDigitalOut wingLeft;
 extern pros::ADIDigitalOut wingRight;
 
 extern pros::Motor intake;
+
+extern pros::IMU inertial;
