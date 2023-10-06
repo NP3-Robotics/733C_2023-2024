@@ -50,7 +50,8 @@ double kdM = -100;
 // finds the new output in the PID loop
 PID_Holder findPIDOutput(double desiredPoint, PID_Holder &input)
 {
-    PID_Holder newInput;
+    // what will be returned to the motor
+    PID_Holder tempStorage;
 
     double mtrPos;
 
@@ -63,45 +64,41 @@ PID_Holder findPIDOutput(double desiredPoint, PID_Holder &input)
     // seeing if it is the start of the PID loop
     if (!(input.moving))
     {
-        newInput.lastInput = 0;
-        newInput.startInput = mtrPos;
-        newInput.errorAcc = 0;
+        tempStorage.lastInput = 0;
+        tempStorage.startInput = mtrPos;
+        tempStorage.errorAcc = 0;
 
-        newInput.moving = true;
+        tempStorage.moving = true;
     }
 
     // calcuation of error
     double changeInEncoder = mtrPos - input.startInput;
-
     double distTravelled = convertDegToDist(changeInEncoder);
-
     double error = desiredPoint - distTravelled;
 
     // i term, error accumulation
-    newInput.errorAcc = input.error + error;
+    tempStorage.errorAcc = input.error + error;
 
     // test this later, see if adding ki makes the robot wack
     // meant to limit error accumulation
-    if (newInput.errorAcc > desiredPoint)
-        newInput.errorAcc = 0;
+    if (tempStorage.errorAcc > desiredPoint)
+        tempStorage.errorAcc = 0;
 
-    if (newInput.error < desiredPoint * 0.1)
-        newInput.errorAcc = 0;
+    if (tempStorage.error < desiredPoint * 0.1)
+        tempStorage.errorAcc = 0;
 
     // new output
-    double output = kpM * error + kiM * newInput.errorAcc + kdM * (distTravelled - input.lastInput) / 10;
+    tempStorage.output = kpM * error + kiM * tempStorage.errorAcc + kdM * (distTravelled - input.lastInput) / 10;
 
     // limit output within bounds of motor velocity (in our case since green 200)
-    if (output > 200)
-        output = 200;
-    if (output < -200)
-        output = -200;
+    if (tempStorage.output > 200)
+        tempStorage.output = 200;
+    if (tempStorage.output < -200)
+        tempStorage.output = -200;
 
-    // forgot what i was doing with this since im restructuring the code, meant to store new info to motor
-    input.output = output;
-    input.lastInput = distTravelled;
+    tempStorage.lastInput = tempStorage.output;
 
-    return newInput;
+    return tempStorage;
 }
 
 // work in progress do to restructuring
