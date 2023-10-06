@@ -1,17 +1,17 @@
-
 #include "main.h"
 #include <cmath>
 #include <iostream>
 
 #include "my_stuff/port_declerations.h"
 #include "my_stuff/global_var.h"
+// #include "my_stuff/lvgl_stuff.h"
 
 using namespace std;
 
-// added controller functions
-
+// what each button on the controller does
 void controllerFunc(pros::Controller controller, double &speed, int &catapos, bool &wingState)
 {
+    // what the buttons are, may delete
     bool speedUp = controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_UP);
     bool slowDown = controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_DOWN);
 
@@ -22,16 +22,18 @@ void controllerFunc(pros::Controller controller, double &speed, int &catapos, bo
 
     bool wingButton = controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_R1);
 
-    bool cataButton = controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_A);
-    bool cataArmButton = controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_B);
+    bool cataButton = controller.get_digital(pros::E_CONTROLLER_DIGITAL_A);
 
     bool intakeIn = controller.get_digital(pros::E_CONTROLLER_DIGITAL_RIGHT);
     bool intakeOut = controller.get_digital(pros::E_CONTROLLER_DIGITAL_LEFT);
 
     bool changeDirection = controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_X);
 
-    bool runPIDTest = controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_L1);
+    bool runPIDTest = controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_B);
 
+    bool cataPosition = controller.get_digital_new_press(pros::E_CONTROLLER_DIGITAL_L1);
+
+    // change speed of bot, bounds make sure the bot doesn't go too fast or too slow
     if (speedUp && speed < 1)
     {
         speed += 0.1;
@@ -40,17 +42,16 @@ void controllerFunc(pros::Controller controller, double &speed, int &catapos, bo
     {
         speed -= 0.1;
     }
+
+    // change direction of input (foward to backward or backward to foward)
     if (changeDirection)
         speed *= -1;
 
+    // foward/backward control
     if (goForward)
     {
         leftMtrs.move(127 * speed);
         rightMtrs.move(127 * speed);
-        std::vector<double> avgLeftMtr = leftMtrs.get_positions();
-        std::cout << "Mtr 1 " << avgLeftMtr[0] << " Mtr 2 " << avgLeftMtr[1] << " Mtr 3 " << avgLeftMtr[2] << endl;
-        std::vector<double> avgRightMtr = rightMtrs.get_positions();
-        std::cout << "Mtr 1 " << avgRightMtr[0] << " Mtr 2 " << avgRightMtr[1] << " Mtr 3 " << avgRightMtr[2] << endl;
     }
     else if (goBackward)
     {
@@ -63,46 +64,48 @@ void controllerFunc(pros::Controller controller, double &speed, int &catapos, bo
         rightMtrs.move(0);
     }
 
+    // check for turn input
     if (turn != 0)
     {
-        leftMtrs.move(-127 * turn);
-        rightMtrs.move(127 * turn);
+        leftMtrs.move(127 * turn);
+        rightMtrs.move(-127 * turn);
     }
 
+    // use wing
     if (wingButton)
     {
+
         if (wingState)
         {
-            wingLeft.set_value(true);
-            wingRight.set_value(true);
-        }
-        else
-        {
+            // if wing open close
             wingLeft.set_value(false);
             wingRight.set_value(false);
         }
+        else
+        {
+            // if wing close open
+            wingLeft.set_value(true);
+            wingRight.set_value(true);
+        }
 
+        // change state of wing so it can retract or extend on next press
         wingState = !wingState;
     }
 
+    // moving catapult
     if (cataButton)
     {
         // 11 per shot
         // 7 shaved gear per shot
         // 110 deg for shot, 180 for next
-        catapult.move_relative(110, 100);
-        pros::delay(500);
-        catapult.move_relative(70, 100);
-        cataArm.move_relative(-10, 200);
-        if (!cataArmMove)
-            cataArmMove = !cataArmMove;
-    }
-    if (cataArmButton && cataArmMove)
-    {
-        cataArm.move_relative(10, 200);
-        cataArmMove = !cataArmMove;
-    }
 
+        catapult.move_relative(180, 40);
+        // catapult.move_velocity(40);
+    }
+    else
+        catapult.move(0);
+
+    // moving intake
     if (intakeIn)
         intake.move(127);
     else if (intakeOut)
@@ -110,27 +113,66 @@ void controllerFunc(pros::Controller controller, double &speed, int &catapos, bo
     else
         intake.move(0);
 
-    if (runPIDTest)
+    // meant to see how far cata needs to move, haven't tested yet
+    if (cataPosition)
     {
-        autonomous();
-        pros::delay(10000);
+        if (cataArmMove)
+        {
+            catapos = catapult.get_position();
+        }
+        else
+        {
+            cout << catapult.get_position() - catapos << endl;
+        }
     }
+
+    // for testing if PID is accurate or needs more tuning
+    if (runPIDTest)
+        autonomous();
 }
 
 void opcontrol()
 {
+    // declaring controller
     pros::Controller controller(pros::E_CONTROLLER_MASTER);
 
-    // partner controller
-    // pros::Controller controlPartner(pros::E_CONTROLLER_PARTNER);
-
+    // variables needed for controllerFunc()
     double speed = 1;
     int catapos = 0;
+    double lastHeading = 0;
+
+    // think this was for checking inertial drift
+    double firstHeading = inertial.get_heading();
+
+    double totalTimeInOp = 0;
+    double totalInertialDif = 0;
+
+    double newInertialReading;
+    double inertialDif;
 
     while (true)
     {
-        pros::lcd::set_text(0, std::to_string(speed));
+        // seeing if inertial was done calibrating
+        if (!inertial.is_calibrating())
+        {
+            newInertialReading = inertial.get_heading();
+            inertialDif = (newInertialReading - lastHeading) / 10;
 
+            totalInertialDif += totalInertialDif - firstHeading;
+            lastHeading = newInertialReading;
+
+            totalTimeInOp += 10;
+
+            // cout << "totalInertialDif is " << totalInertialDif << endl;
+            // cout << totalInertialDif / totalTimeInOp << endl;
+        }
+
+        // check for drift
+        pros::lcd::set_text(1, std::to_string(newInertialReading));
+        pros::lcd::set_text(2, std::to_string(inertialDif));
+        pros::lcd::set_text(3, std::to_string(totalInertialDif));
+
+        // controller functions
         controllerFunc(controller, speed, catapos, wingState);
 
         pros::delay(10);
