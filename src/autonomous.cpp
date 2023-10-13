@@ -7,7 +7,6 @@
 #define PI 3.141592653589793238462643383279502884L
 using namespace std;
 
-// meant to store things which are needed in PID loop
 class PID_Holder
 {
 public:
@@ -22,17 +21,14 @@ public:
     double errorAcc = 0;
 };
 
-// gives average encoder value of a side
 double avgEncoder(std::vector<double> mtr)
 {
-    std::cout << mtr[0] << " " << mtr[1] << " " << mtr[2] << endl;
     double avgMtrEncoder =
         (mtr[0] + mtr[1] + mtr[2]) / 3;
 
     return avgMtrEncoder;
 }
 
-// converts degree to a distance
 double convertDegToDist(double degree)
 {
     // 2 pi r
@@ -43,19 +39,18 @@ double convertDegToDist(double degree)
 }
 
 // 55, 0, 0 starts oscillating
-double kpM = 55;
-double kiM = 1;
-double kdM = -100;
+double kpM = 25;
+double kiM = 0;
+double kdM = 0;
 
-// finds the new output in the PID loop
-PID_Holder findPIDOutput(double desiredPoint, PID_Holder &input)
+PID_Holder findPIDOutput(double desiredPoint, PID_Holder input)
 {
     // what will be returned to the motor
-    PID_Holder tempStorage;
+    PID_Holder tempStorage = input;
 
     double mtrPos;
 
-    // finding out which motor to check
+    // finding out which motor to check for current position
     if (input.left)
         mtrPos = avgEncoder(leftMtrs.get_positions());
     else
@@ -64,9 +59,7 @@ PID_Holder findPIDOutput(double desiredPoint, PID_Holder &input)
     // seeing if it is the start of the PID loop
     if (!(input.moving))
     {
-        tempStorage.lastInput = 0;
         tempStorage.startInput = mtrPos;
-        tempStorage.errorAcc = 0;
 
         tempStorage.moving = true;
     }
@@ -74,21 +67,21 @@ PID_Holder findPIDOutput(double desiredPoint, PID_Holder &input)
     // calcuation of error
     double changeInEncoder = mtrPos - input.startInput;
     double distTravelled = convertDegToDist(changeInEncoder);
-    double error = desiredPoint - distTravelled;
+    tempStorage.error = desiredPoint - distTravelled;
 
     // i term, error accumulation
-    tempStorage.errorAcc = input.error + error;
+    tempStorage.errorAcc = input.error + tempStorage.error;
 
     // test this later, see if adding ki makes the robot wack
     // meant to limit error accumulation
     if (tempStorage.errorAcc > desiredPoint)
         tempStorage.errorAcc = 0;
 
-    if (tempStorage.error < desiredPoint * 0.1)
+    if (tempStorage.error < desiredPoint * 0.3)
         tempStorage.errorAcc = 0;
 
     // new output
-    tempStorage.output = kpM * error + kiM * tempStorage.errorAcc + kdM * (distTravelled - input.lastInput) / 10;
+    tempStorage.output = kpM * tempStorage.error + kiM * tempStorage.errorAcc + kdM * (distTravelled - input.lastInput);
 
     // limit output within bounds of motor velocity (in our case since green 200)
     if (tempStorage.output > 200)
@@ -96,150 +89,251 @@ PID_Holder findPIDOutput(double desiredPoint, PID_Holder &input)
     if (tempStorage.output < -200)
         tempStorage.output = -200;
 
+    // setting lastInput
     tempStorage.lastInput = tempStorage.output;
 
     return tempStorage;
 }
 
-// work in progress do to restructuring
 void moveDist(double desiredDistance)
 {
     PID_Holder leftMtrStorage;
     PID_Holder rightMtrStorage;
 
+    leftMtrStorage.left = true;
+    rightMtrStorage.left = false;
+
     while (true)
     {
-        PID_Holder currentLeftMtrStorage = findPIDOutput(desiredDistance, leftMtrStorage);
-        PID_Holder currentRightMtrStorage = findPIDOutput(desiredDistance, rightMtrStorage);
+        leftMtrStorage = findPIDOutput(desiredDistance, leftMtrStorage);
+        rightMtrStorage = findPIDOutput(desiredDistance, rightMtrStorage);
 
-        if (!leftMtrStorage.moving && !rightMtrStorage.moving)
+        /*
+        if (leftMtrStorage.error == 0 && rightMtrStorage.error == 0)
         {
-            cout << "done moving" << endl;
+            // when to exit code, should be implemented once tuning works
             break;
         }
+        else
+        {
+            leftMtrs.move_velocity(leftMtrStorage.output);
+            rightMtrs.move_velocity(rightMtrStorage.output);
+        }
+        */
 
         leftMtrs.move_velocity(leftMtrStorage.output);
+        cout << "left error is " << leftMtrStorage.error << " left output is " << leftMtrStorage.output << endl;
         rightMtrs.move_velocity(rightMtrStorage.output);
+        cout << "right error is " << rightMtrStorage.error << " right output is " << rightMtrStorage.output << endl;
 
-        leftMtrStorage = currentLeftMtrStorage;
-        rightMtrStorage = currentRightMtrStorage;
-
-        pros::delay(10);
+        pros::delay(15);
     }
 }
 
-double kpT = 10;
+double *calcCurveDistance(double desiredDistance, double desiredDegree)
+{
+    const double rw = 103 / 16;
+
+    double r = desiredDistance / desiredDegree - rw;
+
+    double distanceArr[2];
+
+    distanceArr[0] = r * desiredDegree;
+
+    cout << "Left Distance: " << distanceArr[0] << endl;
+
+    distanceArr[1] = (r + 2 * rw) * desiredDegree;
+
+    cout << "Right Distance: " << distanceArr[1] << endl;
+
+    return distanceArr;
+}
+
+void moveCurve(double desiredDistance, double desiredDegree)
+{
+    double desiredDistanceLeft = calcCurveDistance(desiredDistance, desiredDegree)[0];
+    double desiredDistanceRight = calcCurveDistance(desiredDistance, desiredDegree)[1];
+
+    PID_Holder leftMtrStorage;
+    PID_Holder rightMtrStorage;
+
+    leftMtrStorage.left = true;
+    rightMtrStorage.left = false;
+
+    while (true)
+    {
+        leftMtrStorage = findPIDOutput(desiredDistanceLeft, leftMtrStorage);
+        rightMtrStorage = findPIDOutput(desiredDistanceRight, rightMtrStorage);
+
+        // leftMtrs.move_velocity(leftMtrStorage.output);
+        cout << "left error is " << leftMtrStorage.error << " left output is " << leftMtrStorage.output << endl;
+        // rightMtrs.move_velocity(rightMtrStorage.output);
+        cout << "right error is " << rightMtrStorage.error << " right output is " << rightMtrStorage.output << endl;
+
+        pros::delay(15);
+    }
+}
+
+double kpT = 1;
 double kiT = 0;
 double kdT = 0;
 
-// same concept as the one above except for turning
-PID_Holder findPIDOutputTurn(double turnAmount, PID_Holder &mtrStorage)
+class PID_Holder_Turn
 {
-    double newHeading = inertial.get_heading();
+public:
+    bool moving;
 
-    if (!(mtrStorage.moving))
+    bool turnLeft;
+
+    double startInput = 0;
+    double lastInput = 0;
+    double output = 0;
+
+    double desiredPoint1;
+    double desiredPoint2;
+
+    double error = 0;
+    double errorAcc = 0;
+};
+
+PID_Holder_Turn findPIDOutputTurn(double turnAmount, PID_Holder_Turn input)
+{
+    // what will be returned to the motor
+    PID_Holder_Turn tempStorage = input;
+
+    // finding current position
+    double currentHeading = inertial.get_heading();
+    cout << "Current heading is: " << currentHeading << endl;
+
+    // seeing if it is the start of the PID loop
+    if (!(tempStorage.moving))
     {
-        mtrStorage.startInput = newHeading;
-        mtrStorage.moving = true;
+        tempStorage.startInput = currentHeading;
+        tempStorage.moving = true;
     }
 
-    double desiredHeading = mtrStorage.startInput + turnAmount;
+    // finding end point
+    tempStorage.desiredPoint1 = tempStorage.startInput + turnAmount;
 
-    if (turnAmount > 0)
-        mtrStorage.error = desiredHeading - newHeading;
-    else
-        mtrStorage.error = newHeading - desiredHeading;
+    if (tempStorage.desiredPoint1 > 360)
+        tempStorage.desiredPoint2 = tempStorage.desiredPoint1 - 360;
+    if (tempStorage.desiredPoint1 < 0)
+        tempStorage.desiredPoint2 = tempStorage.desiredPoint1 + 360;
 
-    mtrStorage.errorAcc += mtrStorage.error;
+    cout << "Desired point 1 is: " << tempStorage.desiredPoint1 << endl;
 
-    if (mtrStorage.errorAcc > desiredHeading)
-        mtrStorage.errorAcc = 0;
+    // makes sure everything is in terms of 360 deg
+    if (currentHeading < 180 && tempStorage.desiredPoint1 > 360)
+        tempStorage.desiredPoint1 = tempStorage.desiredPoint2;
+    if (currentHeading > 180 && tempStorage.desiredPoint1 < 0)
+        tempStorage.desiredPoint1 = tempStorage.desiredPoint2;
 
-    if (mtrStorage.error < desiredHeading * 0.1)
-        mtrStorage.errorAcc = 0;
+    // finding shortest direction
+    // cout << "error 1: " << desiredHeading - currentHeading << " error 2: " << currentHeading - desiredHeading << endl;
+    // if (abs(desiredHeading - currentHeading) < abs(currentHeading - desiredHeading))
 
-    double output = kpT * mtrStorage.error + kiT * mtrStorage.errorAcc + kdT * (newHeading - mtrStorage.lastInput) / 10;
+    tempStorage.error = tempStorage.desiredPoint1 - currentHeading;
 
-    if (output > 200)
-        output = 200;
-    if (output < -200)
-        output = -200;
+    // i term, error accumulation
+    tempStorage.errorAcc += tempStorage.error;
 
-    mtrStorage.output = output;
-    mtrStorage.lastInput = newHeading;
+    // test this later, see if adding ki makes the robot wack
+    // meant to limit error accumulation
+    if (tempStorage.errorAcc > tempStorage.desiredPoint1)
+        tempStorage.errorAcc = 0;
 
-    return mtrStorage;
+    if (tempStorage.error < tempStorage.desiredPoint1 * 0.3)
+        tempStorage.errorAcc = 0;
+
+    // cout << "Error is: " << tempStorage.error << ", ErrorAcc is: " << tempStorage.errorAcc << ", Diff is: " << currentHeading - input.lastInput << endl;
+
+    // new output
+    tempStorage.output = kpT * tempStorage.error + kiT * tempStorage.errorAcc + kdT * (currentHeading - input.lastInput);
+
+    // limit output within bounds of motor velocity (in our case since green 200)
+    if (tempStorage.output > 200)
+        tempStorage.output = 200;
+    if (tempStorage.output < -200)
+        tempStorage.output = -200;
+
+    // setting lastInput
+    tempStorage.lastInput = currentHeading;
+
+    return tempStorage;
 }
 
-// same concept as one above except for turning
 void turnDistIntertial(double desiredRotation)
 {
     // look at get_rotation and get_heading
     // use set_heading and set_rotation in init
 
-    PID_Holder inertialStorage;
+    PID_Holder_Turn inertialStorage;
 
     while (true)
     {
-        PID_Holder currentInertialStorage = findPIDOutputTurn(desiredRotation, inertialStorage);
+        inertialStorage = findPIDOutputTurn(desiredRotation, inertialStorage);
 
-        if (!inertialStorage.moving)
-        {
-            cout << "done turning" << endl;
-            break;
-        }
+        cout << "error is " << inertialStorage.error << " output is " << inertialStorage.output << endl;
 
         leftMtrs.move_velocity(inertialStorage.output);
         rightMtrs.move_velocity(-inertialStorage.output);
 
-        inertialStorage = currentInertialStorage;
-
-        pros::delay(10);
+        pros::delay(15);
     }
 }
 
 void autonomous()
 {
-    // makes sure everything is zeroed
+    // initTeamImg();
+
     leftMtrs.tare_position();
     rightMtrs.tare_position();
+    inertial.tare_heading();
 
-    // planning
+    // left side
+    //      put matchload in goal
+    //      move foward
+    //      turn right 90 (90 deg)
+    //      move backward
+    //      intake out
 
-    /*
-    left side shoot over
-         move foward
-         turn right 90 (90 deg)
-         move backward
-         intake out
-         move forward
-         turn right 90 (90 deg)
-         move backward
-         intake a triball
-         turn left 90 (-90 deg)
-         shoot triball over the field
-         repeat
-         maybe touch the bar
-    */
-    /*
-    right side put in goal
-         move foward
-         turn left 90 (-90 deg)
-         move backward
-         intake out
-         move foward
-         turn left 90 (-90 deg)
-         move backward
-         intake a triball
-         move foward
-         turn right 90 (90 deg)
-         move backward
-         intake out
-         repeat
-         maybe touch the bar
-    */
+    //      grab a new triball
+    //      move forward
+    //      turn right 90 (90 deg)
+    //      move backward
+    //      intake a triball
 
-    moveDist(48.0);
-    moveDist(-48.0);
-    turnDistIntertial(90.0);
+    //      send new triball over the field
+    //      turn left 90 (-90 deg)
+    //      shoot triball over the field
+    //      repeat
+
+    //      maybe touch the bar
+
+    // right side put
+    //      put matchload in goal
+    //      move foward
+    //      turn left 90 (-90 deg)
+    //      move backward
+    //      intake out
+
+    //      grab a triball
+    //      move foward
+    //      turn left 90 (-90 deg)
+    //      move backward
+    //      intake a triball
+
+    //      put new triball in goal
+    //      move foward
+    //      turn right 90 (90 deg)
+    //      move backward
+    //      intake out
+    //      repeat
+
+    //      maybe touch the bar
+
+    // left
+    // moveDist(48.0);
+    turnDistIntertial(-90.0);
+    // moveCurve(20, 90);
 }
