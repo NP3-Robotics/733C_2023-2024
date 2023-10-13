@@ -14,40 +14,16 @@
 
 using namespace std;
 
-pros::Vision vision(1);
-
-pros::Motor frontLeftMtr(1, pros::E_MOTOR_GEAR_GREEN, false,
-                         pros::E_MOTOR_ENCODER_DEGREES);
-pros::Motor middleLeftMtr(2, pros::E_MOTOR_GEAR_GREEN, false,
-                          pros::E_MOTOR_ENCODER_DEGREES);
-pros::Motor backLeftMtr(3, pros::E_MOTOR_GEAR_GREEN, true,
-                        pros::E_MOTOR_ENCODER_DEGREES);
-pros::Motor_Group leftMtrs({frontLeftMtr, middleLeftMtr, backLeftMtr});
-
-pros::Motor frontRightMtr(8, pros::E_MOTOR_GEAR_GREEN, true,
-                          pros::E_MOTOR_ENCODER_DEGREES);
-pros::Motor middleRightMtr(9, pros::E_MOTOR_GEAR_GREEN, true,
-                           pros::E_MOTOR_ENCODER_DEGREES);
-pros::Motor backRightMtr(10, pros::E_MOTOR_GEAR_GREEN, false,
-                         pros::E_MOTOR_ENCODER_DEGREES);
-pros::Motor_Group rightMtrs({frontRightMtr, middleRightMtr, backRightMtr});
-
-pros::Motor catapult(21, pros::E_MOTOR_GEAR_RED, true, pros::E_MOTOR_ENCODER_DEGREES);
-
-pros::ADIDigitalOut wingLeft('A');
-pros::ADIDigitalOut wingRight('B');
-
-pros::Motor intake(7, pros::E_MOTOR_GEAR_GREEN, true, pros::E_MOTOR_ENCODER_DEGREES);
-
-pros::IMU inertial(6);
-
 bool wingState;
 bool cataArmMove;
+double cataPos = 0;
 
 void initBot()
 {
-  if (!inertial.is_calibrating())
-    pros::lcd::set_text(1, "Done calibrating inertial sensor");
+  cout << "init bot" << endl;
+  while (!inertial.is_calibrating())
+    pros::delay(2);
+  inertial.set_heading(0);
 
   leftMtrs.set_brake_modes(pros::E_MOTOR_BRAKE_COAST);
   leftMtrs.tare_position();
@@ -60,14 +36,32 @@ void initBot()
 
   // vision.set_zero_point(pros::E_VISION_ZERO_CENTER);
 
+  catapult.tare_position();
   catapult.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
-  catapult.move_relative(135, 100);
+
+  cataPos = 0;
+
+  // catapult.move_absolute(137, 40);
+
+  // while (!(catapult.get_position() < 146 && catapult.get_position() > 136))
+  // {
+  //   cout << catapult.get_position() << endl;
+  //   pros::delay(2);
+  // }
+
+  // cout << catapult.get_position() - cataPos << endl;
+
+  cataPos += catapult.get_position();
   cataArmMove = true;
+
+  intake.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
+
+  pros::delay(1000);
+  cout << "done init" << endl;
 }
 
 void initialize()
 {
-  pros::lcd::initialize();
   initBot();
 }
 
