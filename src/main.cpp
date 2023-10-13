@@ -51,6 +51,8 @@ void initBot()
 
   // cout << catapult.get_position() - cataPos << endl;
 
+  catapult.move_relative(137, 40);
+
   cataPos += catapult.get_position();
   cataArmMove = true;
 
