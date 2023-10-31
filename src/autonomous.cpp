@@ -23,6 +23,7 @@ public:
 
 double avgEncoder(std::vector<double> mtr)
 {
+    // Responsible for finding position of the motors
     double avgMtrEncoder =
         (mtr[0] + mtr[1] + mtr[2]) / 3;
 
@@ -31,9 +32,11 @@ double avgEncoder(std::vector<double> mtr)
 
 double convertDegToDist(double degree)
 {
-    // 2 pi r
-    // r = 2
-    // single encoder value = 2 pi r deg / 360 = pi deg / 90
+    // Used to determine distance travlled
+
+    // Circumfrance 2 pi r
+    // Radius of the wheel = 2
+    // Distance travelled per degree  = 2 pi r deg / 360 = pi deg / 90
 
     return PI * degree / 90;
 }
@@ -57,7 +60,7 @@ PID_Holder findPIDOutput(double desiredPoint, PID_Holder input)
         mtrPos = avgEncoder(rightMtrs.get_positions());
 
     // seeing if it is the start of the PID loop
-    if (!(input.moving))
+    if (!input.moving)
     {
         tempStorage.startInput = mtrPos;
 
@@ -90,7 +93,7 @@ PID_Holder findPIDOutput(double desiredPoint, PID_Holder input)
         tempStorage.output = -200;
 
     // setting lastInput
-    tempStorage.lastInput = tempStorage.output;
+    tempStorage.lastInput = distTravelled;
 
     return tempStorage;
 }
@@ -103,78 +106,29 @@ void moveDist(double desiredDistance)
     leftMtrStorage.left = true;
     rightMtrStorage.left = false;
 
+    leftMtrs.tare_position();
+    rightMtrs.tare_position();
+
     while (true)
     {
         leftMtrStorage = findPIDOutput(desiredDistance, leftMtrStorage);
         rightMtrStorage = findPIDOutput(desiredDistance, rightMtrStorage);
 
-        /*
-        if (leftMtrStorage.error == 0 && rightMtrStorage.error == 0)
-        {
-            // when to exit code, should be implemented once tuning works
-            break;
-        }
-        else
-        {
-            leftMtrs.move_velocity(leftMtrStorage.output);
-            rightMtrs.move_velocity(rightMtrStorage.output);
-        }
-        */
+        cout << leftMtrStorage.startInput << endl;
 
         leftMtrs.move_velocity(leftMtrStorage.output);
-        cout << "left error is " << leftMtrStorage.error << " left output is " << leftMtrStorage.output << endl;
         rightMtrs.move_velocity(rightMtrStorage.output);
-        cout << "right error is " << rightMtrStorage.error << " right output is " << rightMtrStorage.output << endl;
+
+        if (abs(leftMtrStorage.output) < 1 && abs(rightMtrStorage.output) < 1)
+            break;
 
         pros::delay(15);
     }
+    leftMtrs.move_velocity(0);
+    rightMtrs.move_velocity(0);
 }
 
-double *calcCurveDistance(double desiredDistance, double desiredDegree)
-{
-    const double rw = 103 / 16;
-
-    double r = desiredDistance / desiredDegree - rw;
-
-    double distanceArr[2];
-
-    distanceArr[0] = r * desiredDegree;
-
-    cout << "Left Distance: " << distanceArr[0] << endl;
-
-    distanceArr[1] = (r + 2 * rw) * desiredDegree;
-
-    cout << "Right Distance: " << distanceArr[1] << endl;
-
-    return distanceArr;
-}
-
-void moveCurve(double desiredDistance, double desiredDegree)
-{
-    double desiredDistanceLeft = calcCurveDistance(desiredDistance, desiredDegree)[0];
-    double desiredDistanceRight = calcCurveDistance(desiredDistance, desiredDegree)[1];
-
-    PID_Holder leftMtrStorage;
-    PID_Holder rightMtrStorage;
-
-    leftMtrStorage.left = true;
-    rightMtrStorage.left = false;
-
-    while (true)
-    {
-        leftMtrStorage = findPIDOutput(desiredDistanceLeft, leftMtrStorage);
-        rightMtrStorage = findPIDOutput(desiredDistanceRight, rightMtrStorage);
-
-        // leftMtrs.move_velocity(leftMtrStorage.output);
-        cout << "left error is " << leftMtrStorage.error << " left output is " << leftMtrStorage.output << endl;
-        // rightMtrs.move_velocity(rightMtrStorage.output);
-        cout << "right error is " << rightMtrStorage.error << " right output is " << rightMtrStorage.output << endl;
-
-        pros::delay(15);
-    }
-}
-
-double kpT = 1;
+double kpT = 2;
 double kiT = 0;
 double kdT = 0;
 
@@ -201,9 +155,16 @@ PID_Holder_Turn findPIDOutputTurn(double turnAmount, PID_Holder_Turn input)
     // what will be returned to the motor
     PID_Holder_Turn tempStorage = input;
 
+    if (turnAmount < 0)
+        tempStorage.turnLeft = true;
+    else
+        tempStorage.turnLeft = false;
+
     // finding current position
     double currentHeading = inertial.get_heading();
-    cout << "Current heading is: " << currentHeading << endl;
+
+    if (currentHeading == 360)
+        currentHeading = 0;
 
     // seeing if it is the start of the PID loop
     if (!(tempStorage.moving))
@@ -215,37 +176,30 @@ PID_Holder_Turn findPIDOutputTurn(double turnAmount, PID_Holder_Turn input)
     // finding end point
     tempStorage.desiredPoint1 = tempStorage.startInput + turnAmount;
 
-    if (tempStorage.desiredPoint1 > 360)
-        tempStorage.desiredPoint2 = tempStorage.desiredPoint1 - 360;
-    if (tempStorage.desiredPoint1 < 0)
-        tempStorage.desiredPoint2 = tempStorage.desiredPoint1 + 360;
-
-    cout << "Desired point 1 is: " << tempStorage.desiredPoint1 << endl;
-
     // makes sure everything is in terms of 360 deg
-    if (currentHeading < 180 && tempStorage.desiredPoint1 > 360)
-        tempStorage.desiredPoint1 = tempStorage.desiredPoint2;
-    if (currentHeading > 180 && tempStorage.desiredPoint1 < 0)
-        tempStorage.desiredPoint1 = tempStorage.desiredPoint2;
+    if (tempStorage.desiredPoint1 < 360)
+        tempStorage.desiredPoint2 = tempStorage.desiredPoint1 + 360;
+    else
+        tempStorage.desiredPoint2 = tempStorage.desiredPoint1 - 360;
 
-    // finding shortest direction
-    // cout << "error 1: " << desiredHeading - currentHeading << " error 2: " << currentHeading - desiredHeading << endl;
-    // if (abs(desiredHeading - currentHeading) < abs(currentHeading - desiredHeading))
+    double desiredPoint;
 
-    tempStorage.error = tempStorage.desiredPoint1 - currentHeading;
+    if (abs(currentHeading - tempStorage.desiredPoint1) < abs(currentHeading - tempStorage.desiredPoint2))
+        desiredPoint = tempStorage.desiredPoint1;
+    else
+        desiredPoint = tempStorage.desiredPoint2;
+
+    tempStorage.error = desiredPoint - currentHeading;
 
     // i term, error accumulation
     tempStorage.errorAcc += tempStorage.error;
 
-    // test this later, see if adding ki makes the robot wack
     // meant to limit error accumulation
     if (tempStorage.errorAcc > tempStorage.desiredPoint1)
         tempStorage.errorAcc = 0;
 
     if (tempStorage.error < tempStorage.desiredPoint1 * 0.3)
         tempStorage.errorAcc = 0;
-
-    // cout << "Error is: " << tempStorage.error << ", ErrorAcc is: " << tempStorage.errorAcc << ", Diff is: " << currentHeading - input.lastInput << endl;
 
     // new output
     tempStorage.output = kpT * tempStorage.error + kiT * tempStorage.errorAcc + kdT * (currentHeading - input.lastInput);
@@ -262,24 +216,25 @@ PID_Holder_Turn findPIDOutputTurn(double turnAmount, PID_Holder_Turn input)
     return tempStorage;
 }
 
-void turnDistIntertial(double desiredRotation)
+void turnDist(double desiredRotation)
 {
-    // look at get_rotation and get_heading
-    // use set_heading and set_rotation in init
-
     PID_Holder_Turn inertialStorage;
 
     while (true)
     {
         inertialStorage = findPIDOutputTurn(desiredRotation, inertialStorage);
 
-        cout << "error is " << inertialStorage.error << " output is " << inertialStorage.output << endl;
+        if (abs(inertialStorage.output) < 1)
+            break;
 
         leftMtrs.move_velocity(inertialStorage.output);
         rightMtrs.move_velocity(-inertialStorage.output);
 
         pros::delay(15);
     }
+
+    leftMtrs.move_velocity(0);
+    rightMtrs.move_velocity(0);
 }
 
 void autonomous()
@@ -319,7 +274,7 @@ void autonomous()
 
     //      grab a triball
     //      move foward
-    //      turn left 90 (-90 deg)
+    //      turn left 90 (-90 deg)`
     //      move backward
     //      intake a triball
 
@@ -330,10 +285,74 @@ void autonomous()
     //      intake out
     //      repeat
 
-    //      maybe touch the bar
+    //      maybe touch the bar`
+
+    // 33.9411255 in hypot
 
     // left
-    // moveDist(48.0);
-    turnDistIntertial(-90.0);
-    // moveCurve(20, 90);
+    moveDist(-18.0);
+    turnDist(30.0);
+    moveDist(-4.0);
+    intake.move_velocity(-200);
+    pros::delay(1000);
+    intake.move_velocity(0);
+    moveDist(-1.75);
+    moveDist(6.25);
+    turnDist(-25.0);
+    wingRight.set_value(true);
+    moveDist(8.75);
+    turnDist(-20.0);
+    moveDist(2.0);
+    pros::delay(500);
+    moveDist(2.0);
+    turnDist(-80.0);
+    moveDist(25.5);
+    turnDist(75.0);
+    moveDist(25.0);
+    turnDist(-35.0);
+
+    // wingRight.set_value(false);
+    // turnDist(-10.0);
+    // moveDist(30.0);
+    // wingRight.set_value(true);
+    // catapult.move_relative(136, 100);
+    // turnDist(-5.0);
+    // moveDist(17.0);
+
+    // right
+    /*
+    moveDist(-40.0);
+    turnDist(90.0);
+    intake.move_velocity(-200);
+    pros::delay(750);
+    intake.move_velocity(0);
+    moveDist(-2);
+    */
+
+    // skills
+    /*
+    int numShots = 0;
+    while (numShots < 36)
+    {
+        double finalPos = catapult.get_position() + 185;
+
+        catapult.move_absolute(finalPos, 35);
+
+        int t = 0;
+
+        while (!(catapult.get_position() < finalPos + 5 && catapult.get_position() > finalPos - 5))
+        {
+            cout << catapult.get_position() << endl;
+            pros::delay(2);
+            t += 2;
+            if (t > 5000)
+                break;
+            pros::delay(2);
+        }
+
+        numShots++;
+    }
+    // turnDist(-90.0);
+    // moveDist(24);
+    */
 }
