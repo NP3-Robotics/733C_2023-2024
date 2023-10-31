@@ -18,8 +18,8 @@ pros::Motor_Group rightMtrs({frontRightMtr, middleRightMtr, backRightMtr});
 
 pros::Motor catapult(21, pros::E_MOTOR_GEAR_RED, true, pros::E_MOTOR_ENCODER_DEGREES);
 
-pros::ADIDigitalOut wingLeft('A');
-pros::ADIDigitalOut wingRight('B');
+pros::ADIDigitalOut wingLeft('B');
+pros::ADIDigitalOut wingRight('A');
 
 pros::Motor intake(7, pros::E_MOTOR_GEAR_GREEN, true, pros::E_MOTOR_ENCODER_DEGREES);
 
