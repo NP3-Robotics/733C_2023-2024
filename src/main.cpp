@@ -6,7 +6,7 @@
 #include "pros/motors.hpp"
 #include "pros/optical.h"
 #include "pros/rtos.hpp"
-#include "stdio.h"
+#include <iostream>
 
 #include "my_stuff/port_declerations.h"
 #include "my_stuff/global_var.h"
@@ -15,8 +15,6 @@
 using namespace std;
 
 bool wingState;
-bool cataArmMove;
-double cataPos = 0;
 
 void initBot()
 {
@@ -34,27 +32,15 @@ void initBot()
   wingRight.set_value(false);
   wingState = false;
 
-  // vision.set_zero_point(pros::E_VISION_ZERO_CENTER);
-
   catapult.tare_position();
-  catapult.set_brake_mode(pros::E_MOTOR_BRAKE_HOLD);
+  catapult.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
+  // catapult.move_relative(136, 40);
 
-  cataPos = 0;
-
-  // catapult.move_absolute(137, 40);
-
-  // while (!(catapult.get_position() < 146 && catapult.get_position() > 136))
+  // while (!(catapult.get_position() < 141 && catapult.get_position() > 131))
   // {
-  //   cout << catapult.get_position() << endl;
+  //   cout << catapult.get_temperature() << endl;
   //   pros::delay(2);
   // }
-
-  // cout << catapult.get_position() - cataPos << endl;
-
-  catapult.move_relative(137, 40);
-
-  cataPos += catapult.get_position();
-  cataArmMove = true;
 
   intake.set_brake_mode(pros::E_MOTOR_BRAKE_COAST);
 
